@@ -1900,14 +1900,19 @@ input.counter-val::-webkit-outer-spin-button,input.counter-val::-webkit-inner-sp
  <div class="card">
   <div class="card-title">🧪 Deneme</div>
   <div style="font-size:.68rem;color:var(--muted);margin-bottom:10px;line-height:1.5">
-   Bu sayfa yalnızca deneme amaçlı — Hane Hesaplama yönteminin farklı varyasyonlarını yan yana
-   karşılaştırır. Geri testte hiçbiri rastgeleyi anlamlı şekilde geçmiyor (bkz. sohbet), ama kendi
-   gözlemlerinizle karşılaştırmak isterseniz burada. Hiçbir varyanta istatistiksel "daha iyi" etiketi
-   konmadı — kendiniz karar verin.
+   Bu sayfa yalnızca deneme amaçlı — farklı analiz varyasyonlarını yan yana karşılaştırır. Geri testte
+   çoğu rastgeleyi anlamlı şekilde geçmiyor (bkz. sohbet), ama kendi gözlemlerinizle karşılaştırmak
+   isterseniz burada. Hiçbir varyanta istatistiksel "daha iyi" etiketi konmadı — kendiniz karar verin.
+   Her analiz, diğer sayfalardaki gibi 🔮 Yeni Tahmin + 3 Geçmiş Test olarak yan yana gösterilir.
   </div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px">
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
    <div id="dnGameGrid" style="display:flex;gap:6px;flex-wrap:wrap"></div>
-   <span style="font-size:.68rem;color:var(--muted);margin-left:6px">Son 15 çekiliş · en yeni en üstte</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:center">
+   <div style="font-size:.66rem;font-weight:800;color:var(--accent)">🔮 Yeni Tahmin</div>
+   <select id="dnDateSel" onchange="_dnDateTest('')" style="min-width:0;font-size:.7rem;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px"></select>
+   <select id="dnDateSel2" onchange="_dnDateTest('2')" title="2. geçmiş test" style="min-width:0;font-size:.7rem;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px"></select>
+   <select id="dnDateSel3" onchange="_dnDateTest('3')" title="3. geçmiş test" style="min-width:0;font-size:.7rem;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px"></select>
   </div>
  </div>
  <div id="dnList"></div>
@@ -13540,6 +13545,58 @@ function _dnApDevam(draw,game){
   }
   return [...cands].sort((a,b)=>a-b);
 }
+// "Başkasının analizleri" (bilinmeyen yöntem) için makul bir yeniden-kurma denemesi: uygulamada
+// zaten kullanılan (Kapsamlı → NS Zincir Adayları) kümülatif-toplam yakınlığı tekniği. Yöntemin
+// BİREBİR aynısı olduğu KANITLANMADI — yalnızca elde makul bir "olası analiz" hipotezi.
+function _dnNsZincir(draw,game){
+  const max=game.max;
+  const sorted=[...(draw.nums||[])].sort((a,b)=>a-b);
+  const cands=new Set();
+  let ns=0;
+  sorted.forEach(n=>{
+    ns+=n;
+    for(let k=-4;k<=4;k++){const c=ns+k;if(c>=1&&c<=max)cands.add(c);}
+  });
+  return [...cands].sort((a,b)=>a-b);
+}
+// 🔑 Anahtar Şablon — kullanıcı isteği: bir çekilişin sayılarını (küçükten büyüğe) o günkü
+// "ÇOK GELENLER" (frekans) sıralamasındaki RÜTBELERİNE çevirip, geçmişte HER POZİSYON için en sık
+// görülen rütbeyi (mod) bulur; bu "şablonu" GÜNCEL frekans sıralamasına uygulayıp o rütbelerdeki
+// sayıları önerir. İleriye bakış yok: hem şablon hem güncel sıralama yalnızca `prior`den hesaplanır.
+function _dnCokGelenSirasi(prior,max){
+  const say={};for(let n=1;n<=max;n++)say[n]=0;
+  (prior||[]).forEach(d=>[...(d.nums||[]),...(d.bonus||[])].forEach(n=>{if(say[n]!=null)say[n]++;}));
+  return Array.from({length:max},(_,i)=>i+1).sort((a,b)=>say[b]-say[a]||a-b);
+}
+function _dnAnahtarSablon(prior,game){
+  if(!prior||prior.length<40)return [];
+  const max=game.max,cnt=game.count;
+  const guncelSira=_dnCokGelenSirasi(prior,max);
+  const rankOf={};guncelSira.forEach((n,i)=>rankOf[n]=i);
+  // Şablonu geçmiş çekilişlerden çıkar: her pozisyon (1..cnt) için en sık görülen rütbe.
+  const win=prior.slice(0,Math.min(120,prior.length));
+  const posRankTally=Array.from({length:cnt},()=>({}));
+  win.forEach((d,i)=>{
+    const gecmisPrior=prior.slice(i+1);
+    if(gecmisPrior.length<20)return;
+    const sira=_dnCokGelenSirasi(gecmisPrior,max);
+    const r={};sira.forEach((n,idx)=>r[n]=idx);
+    const nums=[...(d.nums||[])].sort((a,b)=>a-b).slice(0,cnt);
+    nums.forEach((n,pos)=>{
+      if(pos>=cnt)return;
+      const rk=r[n];if(rk==null)return;
+      posRankTally[pos][rk]=(posRankTally[pos][rk]||0)+1;
+    });
+  });
+  const cands=new Set();
+  posRankTally.forEach(tally=>{
+    const entries=Object.entries(tally).map(([rk,c])=>[+rk,c]).sort((a,b)=>b[1]-a[1]);
+    entries.slice(0,3).forEach(([rk])=>{
+      for(let d=-1;d<=1;d++){const n=guncelSira[rk+d];if(n)cands.add(n);}
+    });
+  });
+  return [...cands].sort((a,b)=>a-b);
+}
 const _DN_VARYANT=[
   {key:'v0',name:'Mevcut (Hane Hesaplama)',opts:{concat:true,cross:true,useTamamlayan:false,crossIncludeSingles:true}},
   {key:'v1',name:'Sadece yan yana birleştirme',opts:{concat:true,cross:false,useTamamlayan:false,crossIncludeSingles:true}},
@@ -13549,33 +13606,62 @@ const _DN_VARYANT=[
   {key:'v5',name:'Çaprazda tek basamaklıları hariç tut',opts:{concat:true,cross:true,useTamamlayan:false,crossIncludeSingles:false}},
   {key:'v6',name:'Onluk−tek farkı (mutlak)',opts:{concat:false,cross:false,diff:true,crossIncludeSingles:true}},
   {key:'v7',name:'🆕 Eşit Aralıklı Dizi Devamı',fn:_dnApDevam},
+  {key:'v8',name:'🆕 NS Zincir Adayları (olası analiz — başkasının yöntemi DEĞİL, hipotez)',fn:_dnNsZincir},
+  {key:'v9',name:'🔑 Anahtar Şablon (frekans-rütbe kalıbı)',needsPrior:true,fn:(draw,game,prior)=>_dnAnahtarSablon(prior,game)},
 ];
-function _dnVaryantSatirHtml(vname,cands,aSet,ySet){
+function _dnCandHtml(cands,aSet,ySet){
   let net=0,yak=0;
   if(aSet){cands.forEach(n=>{if(aSet.has(n))net++;else if(ySet&&ySet.has(n))yak++;});}
-  const ozet=aSet?`<span style="font-size:.56rem;color:var(--muted)">${net} net${yak?' · '+yak+' yakın':''} / ${cands.length} sayı</span>`
-                 :`<span style="font-size:.56rem;color:var(--muted)">${cands.length} sayı</span>`;
+  const ozet=aSet?`${net} net${yak?' · '+yak+' yakın':''} / ${cands.length} sayı`:`${cands.length} sayı`;
   const chips=cands.map(n=>{
     const hit=aSet&&aSet.has(n),nr=aSet&&!hit&&ySet&&ySet.has(n);
-    return `<span style="font-family:monospace;font-size:.68rem;font-weight:${hit||nr?800:500};color:${hit?'var(--green)':nr?'#c2410c':'var(--text)'};background:${hit?'rgba(0,230,118,.14)':nr?'rgba(194,65,12,.08)':'var(--surface2)'};border:1px solid ${hit?'rgba(0,200,100,.45)':nr?'rgba(194,65,12,.3)':'var(--border)'};padding:2px 6px;border-radius:6px">${n}${hit?'✓':nr?'~':''}</span>`;
+    return `<span style="font-family:monospace;font-size:.66rem;font-weight:${hit||nr?800:500};color:${hit?'var(--green)':nr?'#c2410c':'var(--text)'};background:${hit?'rgba(0,230,118,.14)':nr?'rgba(194,65,12,.08)':'var(--surface2)'};border:1px solid ${hit?'rgba(0,200,100,.45)':nr?'rgba(194,65,12,.3)':'var(--border)'};padding:2px 5px;border-radius:6px">${n}${hit?'✓':nr?'~':''}</span>`;
   }).join('');
-  return `<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">`
-    +`<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:3px"><span style="font-size:.62rem;font-weight:700;color:var(--text)">${vname}</span>${ozet}</div>`
-    +`<div style="display:flex;flex-wrap:wrap;gap:4px">${chips||'<span style="font-size:.6rem;color:var(--muted)">—</span>'}</div>`
-    +`</div>`;
+  return `<div style="font-size:.55rem;color:var(--muted);margin-bottom:5px">${ozet}</div>`
+    +`<div style="display:flex;flex-wrap:wrap;gap:4px">${chips||'<span style="font-size:.6rem;color:var(--muted)">—</span>'}</div>`;
 }
-function _dnKartHtml(baslik,tarihEtiket,source,actualDraw,game){
+// Şablon: diğer sayfalardaki (Kapsamlı, Çekirdek Motor) desenle aynı — paylaşılan 3 tarih seçici +
+// canlı sütun, her ANALİZ kendi kartında 4 sütun (Yeni Tahmin + 3 Geçmiş Test) olarak gösterilir.
+function _dnDates(){
+  const sel=document.getElementById('dnDateSel');if(!sel)return;
+  const draws=_kbGetDraws(_dnGame);
+  let h='<option value="">— Geçmiş test için tarih seçin —</option>';
+  draws.forEach((d,i)=>{if(draws.length-i-1<20)return;h+=`<option value="${d.date}">🎯 ${d.date}  [${d.nums.join(' ')}]${d.bonus&&d.bonus.length?' | '+d.bonus.join(' '):''}</option>`;});
+  ['','2','3'].forEach(sl=>{const e=document.getElementById('dnDateSel'+sl);if(!e)return;const pv=e.value;e.innerHTML=h;if(pv)e.value=pv;});
+}
+function _dnDateTest(){ _dnRender(); }
+function _dnKolonHtml(baslik,tarihEtiket,source,prior,actualDraw,v,game){
+  let h=`<div><div style="font-size:.62rem;font-weight:800;color:var(--accent);margin-bottom:2px">${baslik}</div>`;
+  h+=`<div style="font-size:.56rem;color:var(--muted);margin-bottom:6px">${tarihEtiket}</div>`;
+  if(!source){h+='<div style="font-size:.58rem;color:var(--muted)">Yeterli veri yok.</div></div>';return h;}
   const aSet=actualDraw?new Set([...(actualDraw.nums||[]),...(actualDraw.bonus||[])]):null;
   const ySet=new Set();
   if(aSet)aSet.forEach(x=>{[x-1,x+1].forEach(y=>{if(y>=1&&y<=game.max&&!aSet.has(y))ySet.add(y);});});
-  let h=`<div class="card" style="margin-bottom:10px">`;
-  h+=`<div style="font-size:.7rem;font-weight:800;color:var(--accent);margin-bottom:2px">${baslik}</div>`;
-  h+=`<div style="font-size:.6rem;color:var(--muted);margin-bottom:8px">${tarihEtiket}</div>`;
-  _DN_VARYANT.forEach(v=>{
-    const cands=v.fn?v.fn(source,game):_dnGenV(source,game,v.opts);
-    h+=_dnVaryantSatirHtml(v.name,cands,aSet,ySet);
+  const cands=v.needsPrior?v.fn(source,game,prior):(v.fn?v.fn(source,game):_dnGenV(source,game,v.opts));
+  h+=_dnCandHtml(cands,aSet,ySet);
+  h+='</div>';
+  return h;
+}
+function _dnVaryantKartHtml(v,gid,game,draws){
+  const live=draws[0];
+  const cols=[{baslik:'🔮 Yeni Tahmin',tarih:'canlı · '+live.date+' hanesinden',source:live,prior:draws.slice(1),actual:null}];
+  ['','2','3'].forEach((sl,i)=>{
+    const date=document.getElementById('dnDateSel'+sl)?.value||'';
+    if(!date){cols.push(null);return;}
+    const idx=draws.findIndex(d=>d.date===date);
+    if(idx<0){cols.push(null);return;}
+    const actual=draws[idx],source=draws[idx+1]||null,prior=draws.slice(idx+1);
+    const cek=[...(actual.nums||[])].sort((a,b)=>a-b).join(' ')+(actual.bonus&&actual.bonus.length?' | '+actual.bonus.join(' '):'');
+    cols.push({baslik:'📊 Geçmiş Test '+(i+1),tarih:actual.date+' — '+cek,source,prior,actual});
   });
-  h+=`</div>`;
+  let h=`<div class="card" style="margin-bottom:12px">`;
+  h+=`<div style="font-size:.72rem;font-weight:800;color:var(--text);margin-bottom:8px">${v.name}</div>`;
+  h+=`<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start">`;
+  cols.forEach(c=>{
+    if(!c){h+='<div style="font-size:.6rem;color:var(--muted)">—</div>';return;}
+    h+=_dnKolonHtml(c.baslik,c.tarih,c.source,c.prior,c.actual,v,game);
+  });
+  h+='</div></div>';
   return h;
 }
 function _dnRender(){
@@ -13583,20 +13669,9 @@ function _dnRender(){
   const gid=_dnGame,game=getGame(gid);
   const draws=_kbGetDraws(gid)||[];
   if(!game||!draws.length){el.innerHTML='<div class="empty-state"><span class="empty-icon">📭</span>Veri yok.</div>';return;}
+  _dnDates();
   let h='';
-  h+=_dnKartHtml('🔮 Yeni Tahmin','canlı · '+draws[0].date+' hanesinden',draws[0],null,game);
-  const n=Math.min(15,draws.length);
-  for(let i=0;i<n;i++){
-    const d=draws[i];
-    const onceki=draws[i+1]||null;
-    if(!onceki){
-      h+=`<div class="card" style="margin-bottom:10px"><div style="font-size:.7rem;font-weight:800;color:var(--accent)">📅 ${d.date}</div><div style="font-size:.6rem;color:var(--muted)">Bu çekilişten önce yeterli veri yok.</div></div>`;
-      continue;
-    }
-    const nums=[...(d.nums||[])].sort((a,b)=>a-b);
-    const baslik=`📅 ${d.date}  ${nums.join(' ')}${d.bonus&&d.bonus.length?' | '+d.bonus.join(' '):''}`;
-    h+=_dnKartHtml(baslik,'hane: '+onceki.date+' sonucundan',onceki,d,game);
-  }
+  _DN_VARYANT.forEach(v=>{h+=_dnVaryantKartHtml(v,gid,game,draws);});
   el.innerHTML=h;
 }
 
