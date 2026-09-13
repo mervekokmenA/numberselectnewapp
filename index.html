@@ -13516,6 +13516,30 @@ function _dnGenV(draw,game,opts){
   if(opts.minVotes)list=list.filter(n=>cnt[n]>=opts.minVotes);
   return list.sort((a,b)=>a-b);
 }
+// Kullanıcı gözlemi: bir çekilişte eşit aralıklı (aritmetik dizi) 3+ sayı varsa
+// (ör. 35-38-41, fark=3), dizinin bir sonraki teriminin (44) ya da bir öncekinin
+// (32) sonraki çekilişte çıkma eğilimi olabilir. En az 3 terimli GERÇEK diziler
+// aranır (rastgele iki sayı arasında her zaman "bir fark" vardır, bu yüzden tek
+// başına iki sayı yeterli sayılmaz — en az 3 terim şart).
+function _dnApDevam(draw,game){
+  const nums=[...(draw.nums||[])].sort((a,b)=>a-b);
+  const max=game.max;
+  const cands=new Set();
+  for(let i=0;i<nums.length;i++){
+    for(let j=i+1;j<nums.length;j++){
+      const d=nums[j]-nums[i];
+      if(d<=0)continue;
+      let k=nums[j]+d,chainLen=2;
+      while(nums.includes(k)){chainLen++;k+=d;}
+      if(chainLen>=3){
+        if(k>=1&&k<=max)cands.add(k);              // dizinin devamı (ileri)
+        const onceki=nums[i]-d;
+        if(onceki>=1&&onceki<=max)cands.add(onceki); // dizinin başı (geri)
+      }
+    }
+  }
+  return [...cands].sort((a,b)=>a-b);
+}
 const _DN_VARYANT=[
   {key:'v0',name:'Mevcut (Hane Hesaplama)',opts:{concat:true,cross:true,useTamamlayan:false,crossIncludeSingles:true}},
   {key:'v1',name:'Sadece yan yana birleştirme',opts:{concat:true,cross:false,useTamamlayan:false,crossIncludeSingles:true}},
@@ -13524,6 +13548,7 @@ const _DN_VARYANT=[
   {key:'v4',name:'Yalnızca çok-oylu sayılar (≥2)',opts:{concat:true,cross:true,useTamamlayan:false,crossIncludeSingles:true,minVotes:2}},
   {key:'v5',name:'Çaprazda tek basamaklıları hariç tut',opts:{concat:true,cross:true,useTamamlayan:false,crossIncludeSingles:false}},
   {key:'v6',name:'Onluk−tek farkı (mutlak)',opts:{concat:false,cross:false,diff:true,crossIncludeSingles:true}},
+  {key:'v7',name:'🆕 Eşit Aralıklı Dizi Devamı',fn:_dnApDevam},
 ];
 function _dnVaryantSatirHtml(vname,cands,aSet,ySet){
   let net=0,yak=0;
@@ -13547,7 +13572,7 @@ function _dnKartHtml(baslik,tarihEtiket,source,actualDraw,game){
   h+=`<div style="font-size:.7rem;font-weight:800;color:var(--accent);margin-bottom:2px">${baslik}</div>`;
   h+=`<div style="font-size:.6rem;color:var(--muted);margin-bottom:8px">${tarihEtiket}</div>`;
   _DN_VARYANT.forEach(v=>{
-    const cands=_dnGenV(source,game,v.opts);
+    const cands=v.fn?v.fn(source,game):_dnGenV(source,game,v.opts);
     h+=_dnVaryantSatirHtml(v.name,cands,aSet,ySet);
   });
   h+=`</div>`;
